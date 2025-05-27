@@ -3,13 +3,13 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useAuth } from "@/contexts/auth-context"
+import { useEnhancedAuth } from "@/contexts/enhanced-auth-context"
 import { useRouter } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { FileSpreadsheet, Brain, CheckCircle, Download, Sparkles, Shield, Zap } from "lucide-react"
 
 export default function LandingPage() {
-  const { user } = useAuth()
+  const { user } = useEnhancedAuth()
   const router = useRouter()
 
   const handleGetStarted = () => {

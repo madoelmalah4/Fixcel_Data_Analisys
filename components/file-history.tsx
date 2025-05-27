@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { FileSpreadsheet, Download, Calendar, CheckCircle, Clock, Trash2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { supabase } from "@/lib/enhanced-auth"
 import { useToast } from "@/hooks/use-toast"
+import { enhancedAuth } from "@/lib/enhanced-auth"
 
 interface FileHistoryItem {
   id: string
@@ -40,7 +41,7 @@ export function FileHistory({ onSelectFile }: FileHistoryProps) {
     try {
       const {
         data: { session },
-      } = await supabase.auth.getSession()
+      } = await enhancedAuth.getSession()
 
       if (!session?.user) {
         setLoading(false)
@@ -99,7 +100,7 @@ export function FileHistory({ onSelectFile }: FileHistoryProps) {
 
       const {
         data: { session },
-      } = await supabase.auth.getSession()
+      } = await enhancedAuth.getSession()
 
       if (!session) {
         throw new Error("Not authenticated")
@@ -175,7 +176,7 @@ export function FileHistory({ onSelectFile }: FileHistoryProps) {
     try {
       const {
         data: { session },
-      } = await supabase.auth.getSession()
+      } = await enhancedAuth.getSession()
 
       if (!session) {
         throw new Error("Not authenticated")

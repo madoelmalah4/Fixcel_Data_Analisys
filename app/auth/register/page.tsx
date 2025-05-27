@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
@@ -9,16 +8,17 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useAuth } from "@/contexts/auth-context"
+import { useEnhancedAuth } from "@/contexts/enhanced-auth-context"
 import { useToast } from "@/hooks/use-toast"
-import { FileSpreadsheet, Loader2 } from "lucide-react"
+import { FileSpreadsheet, Loader2, Mail, CheckCircle } from "lucide-react"
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [loading, setLoading] = useState(false)
-  const { signUp } = useAuth()
+  const [emailSent, setEmailSent] = useState(false)
+  const { signUp, resendConfirmation } = useEnhancedAuth()
   const router = useRouter()
   const { toast } = useToast()
 
@@ -47,20 +47,97 @@ export default function RegisterPage() {
 
     try {
       await signUp(email, password)
+      setEmailSent(true)
       toast({
-        title: "Account created!",
-        description: "Please check your email to verify your account.",
+        title: "Registration Successful!",
+        description: "Please check your email to confirm your account.",
       })
-      router.push("/auth/login")
+    } catch (error: any) {
+      if (error.message.includes("email")) {
+        setEmailSent(true)
+        toast({
+          title: "Check Your Email",
+          description: "A confirmation link has been sent to your email address.",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to create account",
+          variant: "destructive",
+        })
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResendConfirmation = async () => {
+    setLoading(true)
+    try {
+      await resendConfirmation(email)
+      toast({
+        title: "Email Sent",
+        description: "A new confirmation email has been sent.",
+      })
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to create account",
+        description: error.message || "Failed to resend confirmation email",
         variant: "destructive",
       })
     } finally {
       setLoading(false)
     }
+  }
+
+  if (emailSent) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-green-100 dark:bg-green-900 rounded-full">
+                <Mail className="h-8 w-8 text-green-600" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl">Check Your Email</CardTitle>
+            <CardDescription>
+              We've sent a confirmation link to <strong>{email}</strong>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 text-blue-600 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-blue-900 dark:text-blue-100">Next Steps:</p>
+                  <ol className="mt-2 space-y-1 text-blue-800 dark:text-blue-200">
+                    <li>1. Check your email inbox</li>
+                    <li>2. Click the confirmation link</li>
+                    <li>3. Return here to sign in</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Button onClick={handleResendConfirmation} disabled={loading} variant="outline" className="w-full">
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Resend Confirmation Email
+              </Button>
+
+              <Button onClick={() => router.push("/auth/login")} className="w-full">
+                Back to Sign In
+              </Button>
+            </div>
+
+            <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+              <p>Didn't receive the email? Check your spam folder or try resending.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -118,6 +195,13 @@ export default function RegisterPage() {
             <Link href="/auth/login" className="text-blue-600 hover:underline">
               Sign in
             </Link>
+          </div>
+
+          <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-xs text-gray-600 dark:text-gray-300">
+            <p>
+              <strong>Note:</strong> You'll need to confirm your email address before you can sign in. Make sure to
+              check your spam folder if you don't see the confirmation email.
+            </p>
           </div>
         </CardContent>
       </Card>

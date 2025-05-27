@@ -16,7 +16,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+// Compatibility layer - redirects to enhanced auth
+export { useEnhancedAuth as useAuth, EnhancedAuthProvider as AuthProvider } from "./enhanced-auth-context"
+
+export const AuthProviderLegacy = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -62,10 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>{children}</AuthContext.Provider>
 }
 
-export const useAuth = () => {
+const useEnhancedAuth = () => {
   const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
+    throw new Error("useEnhancedAuth must be used within an AuthProviderLegacy")
   }
   return context
 }
+
+const EnhancedAuthProvider = AuthProviderLegacy

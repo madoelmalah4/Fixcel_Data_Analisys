@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { FileSpreadsheet, FileText, RotateCcw, CheckCircle, X } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { enhancedAuth } from "@/lib/enhanced-auth"
 
 interface CleaningSession {
   id: string
@@ -34,9 +34,10 @@ export function ResultsDownload({ session, onStartOver }: ResultsDownloadProps) 
 
     try {
       // Get the session token
-      const {
-        data: { session: authSession },
-      } = await supabase.auth.getSession()
+      // const {
+      //   data: { session: authSession },
+      // } = await supabase.auth.getSession()
+      const authSession = await enhancedAuth.getSession()
       if (!authSession) {
         throw new Error("Not authenticated")
       }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/contexts/auth-context"
+import { useEnhancedAuth } from "@/contexts/enhanced-auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -11,12 +11,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { FileUpload } from "@/components/file-upload"
 import { CleaningStep } from "@/components/cleaning-step"
-import { UserInputStep } from "@/components/user-input-step"
+import { EnhancedUserInputStep } from "@/components/enhanced-user-input-step"
 import { ResultsDownload } from "@/components/results-download"
 import { FileHistory } from "@/components/file-history"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { FileSpreadsheet, LogOut, User, Loader2, Upload, History, Brain, Wand2 } from "lucide-react"
-import { supabase } from "@/lib/supabase"
+import { getAuthHeaders } from "@/lib/enhanced-auth"
 
 interface CleaningSession {
   id: string
@@ -50,7 +50,7 @@ interface UserInputRecommendation {
 }
 
 export default function AppPage() {
-  const { user, signOut, loading: authLoading } = useAuth()
+  const { user, signOut, loading: authLoading } = useEnhancedAuth()
   const router = useRouter()
   const { toast } = useToast()
   const [session, setSession] = useState<CleaningSession | null>(null)
@@ -79,28 +79,14 @@ export default function AppPage() {
     }
   }
 
-  const getAuthHeaders = async () => {
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session?.access_token) {
-        return { Authorization: `Bearer ${session.access_token}` }
-      }
-      return {}
-    } catch (error) {
-      console.error("Failed to get auth headers:", error)
-      return {}
-    }
-  }
-
   const makeApiRequest = async (url: string, options: RequestInit = {}) => {
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch(url, {
         ...options,
         headers: {
           "Content-Type": "application/json",
-          ...(await getAuthHeaders()),
+          ...authHeaders,
           ...options.headers,
         },
       })
@@ -489,11 +475,14 @@ export default function AppPage() {
                   )}
                 </div>
 
-                <UserInputStep
+                <EnhancedUserInputStep
                   onSubmitRequest={handleUserRequest}
                   onDecision={handleUserRecommendationDecision}
                   currentRecommendation={currentUserRecommendation}
                   loading={userInputLoading}
+                  sessionId={session.id}
+                  filename={session.filename}
+                  acceptedCount={session.acceptedCount}
                 />
 
                 <div className="mt-8 text-center">

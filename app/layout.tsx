@@ -3,14 +3,14 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
-import { AuthProvider } from "@/contexts/auth-context"
+import { EnhancedAuthProvider } from "@/contexts/enhanced-auth-context"
 import { Toaster } from "@/components/ui/toaster"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Excel AI Assistant - Clean & Prepare Your Data",
-  description: "AI-powered Excel file cleaning and data preparation tool using Google Gemini",
+  description: "AI-powered Excel file cleaning and data preparation tool with advanced normalization features",
     generator: 'v0.dev'
 }
 
@@ -23,10 +23,10 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>
+          <EnhancedAuthProvider>
             {children}
             <Toaster />
-          </AuthProvider>
+          </EnhancedAuthProvider>
         </ThemeProvider>
       </body>
     </html>
