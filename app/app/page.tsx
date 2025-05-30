@@ -1,5 +1,7 @@
 "use client"
 
+import { CardContent } from "@/components/ui/card"
+
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useEnhancedAuth } from "@/contexts/enhanced-auth-context"
@@ -12,15 +14,16 @@ import { useToast } from "@/hooks/use-toast"
 import { FileUpload } from "@/components/file-upload"
 import { CleaningStep } from "@/components/cleaning-step"
 import { EnhancedUserInputStep } from "@/components/enhanced-user-input-step"
+import { ChunkedProgressDisplay } from "@/components/chunked-progress-display"
 import { ResultsDownload } from "@/components/results-download"
 import { FileHistory } from "@/components/file-history"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { FileSpreadsheet, LogOut, User, Loader2, Upload, History, Brain, Wand2 } from "lucide-react"
+import { FileSpreadsheet, LogOut, User, Loader2, Upload, History, Brain, Wand2, Database } from "lucide-react"
 import { getAuthHeaders } from "@/lib/enhanced-auth"
 
 interface CleaningSession {
   id: string
-  status: "uploading" | "analyzing" | "cleaning" | "user_input" | "completed"
+  status: "uploading" | "analyzing" | "chunked_analyzing" | "cleaning" | "user_input" | "completed"
   filename: string
   currentStep: number
   totalSteps: number
@@ -28,6 +31,8 @@ interface CleaningSession {
   acceptedCount: number
   skippedCount: number
   userInputMode: boolean
+  isLargeFile: boolean
+  fileSize: number
 }
 
 interface CleaningRecommendation {
@@ -37,6 +42,8 @@ interface CleaningRecommendation {
   actionType: string
   targetColumn?: string
   status: "pending" | "accepted" | "skipped"
+  affectedChunks?: number
+  canProcessInParallel?: boolean
 }
 
 interface UserInputRecommendation {
@@ -48,6 +55,8 @@ interface UserInputRecommendation {
   status: "pending" | "accepted" | "rejected"
   reasoning: string
 }
+
+const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024 // 5MB
 
 export default function AppPage() {
   const { user, signOut, loading: authLoading } = useEnhancedAuth()
@@ -91,7 +100,6 @@ export default function AppPage() {
         },
       })
 
-      // Check if response is JSON
       const contentType = response.headers.get("content-type")
       if (!contentType || !contentType.includes("application/json")) {
         const text = await response.text()
@@ -115,13 +123,16 @@ export default function AppPage() {
   const handleFileUpload = async (file: File) => {
     setLoading(true)
     setActiveTab("upload")
+
+    const isLargeFile = file.size > LARGE_FILE_THRESHOLD
+
     try {
       const formData = new FormData()
       formData.append("file", file)
 
       const authHeaders = await getAuthHeaders()
 
-      console.log("Uploading file:", file.name, "Size:", file.size)
+      console.log("Uploading file:", file.name, "Size:", file.size, "Large file:", isLargeFile)
 
       const response = await fetch("/api/upload", {
         method: "POST",
@@ -138,7 +149,7 @@ export default function AppPage() {
 
       setSession({
         id: data.sessionId,
-        status: cleaningMode === "auto" ? "analyzing" : "user_input",
+        status: cleaningMode === "auto" ? (isLargeFile ? "chunked_analyzing" : "analyzing") : "user_input",
         filename: file.name,
         currentStep: 0,
         totalSteps: 0,
@@ -146,10 +157,20 @@ export default function AppPage() {
         acceptedCount: 0,
         skippedCount: 0,
         userInputMode: cleaningMode === "manual",
+        isLargeFile,
+        fileSize: file.size,
       })
 
       if (cleaningMode === "auto") {
-        await analyzeFile(data.sessionId)
+        if (isLargeFile) {
+          toast({
+            title: "Large File Detected",
+            description: "Using advanced chunked processing for optimal performance",
+          })
+          await analyzeFileChunked(data.sessionId)
+        } else {
+          await analyzeFile(data.sessionId)
+        }
       }
     } catch (error) {
       console.error("Upload error:", error)
@@ -192,6 +213,52 @@ export default function AppPage() {
       toast({
         title: "Analysis Error",
         description: error instanceof Error ? error.message : "Failed to analyze file. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const analyzeFileChunked = async (sessionId: string) => {
+    try {
+      const data = await makeApiRequest("/api/analyze-chunked", {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId,
+          chunkSize: 1000, // Process 1000 rows per chunk
+        }),
+      })
+
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: data.recommendations.length > 0 ? "cleaning" : "completed",
+              totalSteps: data.recommendations.length,
+              recommendations: data.recommendations.map((rec: any) => ({
+                ...rec,
+                affectedChunks: rec.affectedChunks || 0,
+                canProcessInParallel: rec.canProcessInParallel !== false,
+              })),
+            }
+          : null,
+      )
+
+      if (data.recommendations.length === 0) {
+        toast({
+          title: "Chunked Analysis Complete",
+          description: data.message || "Your Excel file is already clean! No issues were found.",
+        })
+      } else {
+        toast({
+          title: "Chunked Analysis Complete",
+          description: `Found ${data.recommendations.length} optimization opportunities across ${data.metadata.totalChunks} chunks`,
+        })
+      }
+    } catch (error) {
+      console.error("Chunked analysis error:", error)
+      toast({
+        title: "Analysis Error",
+        description: error instanceof Error ? error.message : "Failed to analyze large file. Please try again.",
         variant: "destructive",
       })
     }
@@ -266,7 +333,6 @@ export default function AppPage() {
         })
       }
 
-      // Clear current recommendation
       setCurrentUserRecommendation(null)
       console.log("User decision processed successfully")
     } catch (error) {
@@ -284,7 +350,10 @@ export default function AppPage() {
     if (!session) return
 
     try {
-      const data = await makeApiRequest("/api/apply-recommendation", {
+      // Use chunked API for large files
+      const apiEndpoint = session.isLargeFile ? "/api/apply-chunked-recommendation" : "/api/apply-recommendation"
+
+      const data = await makeApiRequest(apiEndpoint, {
         method: "POST",
         body: JSON.stringify({
           sessionId: session.id,
@@ -313,10 +382,16 @@ export default function AppPage() {
         }
       })
 
+      const successMessage =
+        decision === "accept"
+          ? session.isLargeFile
+            ? `Recommendation applied across ${data.chunksProcessed || "multiple"} chunks`
+            : "Recommendation has been applied to your data"
+          : "Recommendation has been skipped"
+
       toast({
         title: decision === "accept" ? "Applied!" : "Skipped",
-        description:
-          decision === "accept" ? "Recommendation has been applied to your data." : "Recommendation has been skipped.",
+        description: successMessage,
       })
     } catch (error) {
       console.error("Network error:", error)
@@ -345,6 +420,13 @@ export default function AppPage() {
   const switchToManualMode = () => {
     if (session) {
       setSession((prev) => (prev ? { ...prev, status: "user_input", userInputMode: true } : null))
+    }
+  }
+
+  const handleChunkedAnalysisComplete = () => {
+    // This will be called when chunked analysis is complete
+    if (session) {
+      setSession((prev) => (prev ? { ...prev, status: "cleaning" } : null))
     }
   }
 
@@ -404,7 +486,8 @@ export default function AppPage() {
                 <div className="text-center mb-8">
                   <h1 className="text-3xl font-bold mb-4">Upload Your Excel File</h1>
                   <p className="text-gray-600 dark:text-gray-300 mb-6">
-                    Upload an Excel file (.xlsx) and choose how you'd like to clean your data.
+                    Upload an Excel file (.xlsx) and choose how you'd like to clean your data. Large files are
+                    automatically processed using our advanced chunked system.
                   </p>
 
                   {/* Cleaning Mode Selection */}
@@ -419,7 +502,8 @@ export default function AppPage() {
                           <Brain className="h-8 w-8 text-blue-600 mx-auto mb-2" />
                           <CardTitle className="text-lg">Auto Mode</CardTitle>
                           <CardDescription>
-                            AI analyzes your data and suggests cleaning actions automatically
+                            AI analyzes your data and suggests cleaning actions automatically. Large files use chunked
+                            processing.
                           </CardDescription>
                         </CardHeader>
                       </Card>
@@ -435,6 +519,18 @@ export default function AppPage() {
                         </CardHeader>
                       </Card>
                     </div>
+                  </div>
+
+                  {/* Large File Info */}
+                  <div className="bg-blue-50 dark:bg-blue-950 rounded-lg p-4 mb-6">
+                    <div className="flex items-center justify-center space-x-2 mb-2">
+                      <Database className="h-5 w-5 text-blue-600" />
+                      <span className="font-semibold text-blue-900 dark:text-blue-100">Large File Support</span>
+                    </div>
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      Files over 5MB automatically use our advanced chunked processing system for optimal performance
+                      and memory efficiency.
+                    </p>
                   </div>
                 </div>
                 <FileUpload onFileUpload={handleFileUpload} loading={loading} />
@@ -463,12 +559,27 @@ export default function AppPage() {
               </div>
             )}
 
+            {session.status === "chunked_analyzing" && (
+              <div className="max-w-4xl mx-auto">
+                <ChunkedProgressDisplay
+                  sessionId={session.id}
+                  filename={session.filename}
+                  onComplete={handleChunkedAnalysisComplete}
+                />
+              </div>
+            )}
+
             {session.status === "user_input" && (
               <div className="max-w-4xl mx-auto">
                 <div className="mb-8 text-center">
                   <h1 className="text-2xl font-bold mb-2">Manual Cleaning Mode</h1>
                   <p className="text-gray-600 dark:text-gray-300 mb-4">
                     Tell the AI what you want to do with {session.filename}
+                    {session.isLargeFile && (
+                      <Badge className="ml-2 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                        Large File - Chunked Processing
+                      </Badge>
+                    )}
                   </p>
                   {session.acceptedCount > 0 && (
                     <Badge variant="secondary">{session.acceptedCount} changes applied</Badge>
@@ -497,7 +608,15 @@ export default function AppPage() {
               <div className="max-w-4xl mx-auto">
                 <div className="mb-8">
                   <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-2xl font-bold">Cleaning {session.filename}</h1>
+                    <div>
+                      <h1 className="text-2xl font-bold">Cleaning {session.filename}</h1>
+                      {session.isLargeFile && (
+                        <Badge className="mt-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                          <Database className="h-3 w-3 mr-1" />
+                          Chunked Processing Active
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex items-center space-x-4">
                       <Badge variant="secondary">
                         Step {session.currentStep + 1} of {session.totalSteps}
@@ -512,14 +631,34 @@ export default function AppPage() {
                   <div className="flex space-x-4 text-sm text-gray-600 dark:text-gray-300">
                     <span>✅ Accepted: {session.acceptedCount}</span>
                     <span>⏭️ Skipped: {session.skippedCount}</span>
+                    {session.isLargeFile && <span>🔧 Chunked processing for optimal performance</span>}
                   </div>
                 </div>
 
                 {session.currentStep < session.totalSteps && (
-                  <CleaningStep
-                    recommendation={session.recommendations[session.currentStep]}
-                    onDecision={handleRecommendationDecision}
-                  />
+                  <div className="space-y-4">
+                    <CleaningStep
+                      recommendation={session.recommendations[session.currentStep]}
+                      onDecision={handleRecommendationDecision}
+                    />
+
+                    {/* Show chunk info for large files */}
+                    {session.isLargeFile && session.recommendations[session.currentStep]?.affectedChunks && (
+                      <Card className="bg-blue-50 dark:bg-blue-950">
+                        <CardContent className="pt-4">
+                          <div className="flex items-center space-x-2 text-sm text-blue-800 dark:text-blue-200">
+                            <Database className="h-4 w-4" />
+                            <span>
+                              This operation will process {session.recommendations[session.currentStep].affectedChunks}{" "}
+                              chunks
+                              {session.recommendations[session.currentStep].canProcessInParallel &&
+                                " in parallel for faster execution"}
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
                 )}
               </div>
             )}
